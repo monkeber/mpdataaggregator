@@ -9,5 +9,16 @@
                 "CMAKE_BUILD_TYPE": "Debug"
             }
         }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "displayName": "Debug Build Preset",
+            "description": "Debug build preset",
+            "jobs": 0,
+            "cleanFirst": true,
+            "verbose": false,
+            "configurePreset": "debug"
+        }
     ]
 }
