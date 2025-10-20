@@ -7,21 +7,9 @@
 
 #include <cstring>
 #include <cerrno>
+#include <thread>
 
-constexpr auto SHARED_MEMORY_NAME{ "/mpdataaggregator" };
-constexpr auto SHARED_MEMORY_LENGTH{ 2560 };
-constexpr auto DATA_CHUNK_SIZE{ 256 };
-
-struct ShBuf
-{
-	pid_t pid;
-	char data[DATA_CHUNK_SIZE];
-
-	void SetData(const char* str)
-	{
-		std::memcpy(data, str, std::strlen(str) + 1);
-	}
-};
+#include <common/Buffer.h>
 
 int main()
 {
@@ -31,22 +19,37 @@ int main()
 
 	ftruncate(fd, SHARED_MEMORY_LENGTH);
 
-	void* ptr = mmap(NULL, SHARED_MEMORY_LENGTH, PROT_WRITE, MAP_SHARED, fd, 0);
+	ShBuf* buf =
+		reinterpret_cast<ShBuf*>(mmap(NULL, SHARED_MEMORY_LENGTH, PROT_WRITE, MAP_SHARED, fd, 0));
 	close(fd);
 
-	if (ptr == MAP_FAILED)
+	if (buf == MAP_FAILED)
 	{
 		std::cout << "Mmap returned null, errno: " << errno << std::endl;
 		return 1;
 	}
 
-	ShBuf buf;
-	buf.pid = getpid();
-	buf.SetData("Hello");
+	pthread_mutexattr_t attr;
+	pthread_mutexattr_init(&attr);
+	pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+	pthread_mutex_init(&buf->mutex, &attr);
+	pthread_mutexattr_destroy(&attr);
 
-	std::memcpy(ptr, &buf, sizeof(ShBuf));
+	std::uint32_t seqnum{ 0 };
+	buf->InitBuffer(5);
+	while (true)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds{ 500 });
+		pthread_mutex_lock(&buf->mutex);
+		DataBlock db;
+		db.pid = getpid();
+		db.seqnum = seqnum++;
+		db.SetData("Hello");
+		buf->data[0] = db;
+		pthread_mutex_unlock(&buf->mutex);
+	}
 
-	munmap(ptr, SHARED_MEMORY_LENGTH);
+	munmap(buf, SHARED_MEMORY_LENGTH);
 	shm_unlink(SHARED_MEMORY_NAME);
 
 	return 0;
