@@ -1,12 +1,11 @@
 #include <fcntl.h>
-#include <iostream>
+#include <mqueue.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <cstring>
-#include <cerrno>
+#include <iostream>
 #include <thread>
 
 #include <common/Buffer.h>
@@ -15,42 +14,32 @@ int main()
 {
 	std::cout << "Producer Started" << std::endl;
 
-	const auto fd{ shm_open(SHARED_MEMORY_NAME, O_RDWR | O_CREAT, 0666) };
+	common::ShBuf buf{ 5 };
 
-	ftruncate(fd, SHARED_MEMORY_LENGTH);
+	// Create message queue
+	mq_attr queueAttr;
+	queueAttr.mq_flags = 0;
+	queueAttr.mq_maxmsg = 1;
+	queueAttr.mq_msgsize = 1;
+	queueAttr.mq_curmsgs = 0;
 
-	ShBuf* buf =
-		reinterpret_cast<ShBuf*>(mmap(NULL, SHARED_MEMORY_LENGTH, PROT_WRITE, MAP_SHARED, fd, 0));
-	close(fd);
-
-	if (buf == MAP_FAILED)
-	{
-		std::cout << "Mmap returned null, errno: " << errno << std::endl;
-		return 1;
-	}
-
-	pthread_mutexattr_t attr;
-	pthread_mutexattr_init(&attr);
-	pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
-	pthread_mutex_init(&buf->mutex, &attr);
-	pthread_mutexattr_destroy(&attr);
+	mqd_t mq =
+		mq_open(common::MESSAGE_QUEUE_NAME, O_CREAT | O_WRONLY | O_NONBLOCK, 0666, &queueAttr);
 
 	std::uint32_t seqnum{ 0 };
-	buf->InitBuffer(5);
 	while (true)
 	{
 		std::this_thread::sleep_for(std::chrono::milliseconds{ 500 });
-		pthread_mutex_lock(&buf->mutex);
-		DataBlock db;
+		const std::lock_guard<common::ShBuf> guard{ buf };
+		common::DataBlock db;
 		db.pid = getpid();
 		db.seqnum = seqnum++;
 		db.SetData("Hello");
-		buf->data[0] = db;
-		pthread_mutex_unlock(&buf->mutex);
+		buf[0] = db;
+		mq_send(mq, "", 0, 0);
 	}
 
-	munmap(buf, SHARED_MEMORY_LENGTH);
-	shm_unlink(SHARED_MEMORY_NAME);
+	mq_close(mq);
 
 	return 0;
 }

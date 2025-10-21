@@ -5,10 +5,13 @@
 #include <sys/types.h>
 #include <span>
 
-constexpr auto SHARED_MEMORY_NAME{ "/mpdataaggregator" };
-constexpr auto SHARED_MEMORY_LENGTH{ 2560 };
+namespace common
+{
 
 constexpr auto DATA_CHUNK_SIZE{ 256 };
+constexpr auto MESSAGE_QUEUE_NAME{ "/mpdataaggregatorqueue" };
+constexpr auto SHARED_MEMORY_NAME{ "/mpdataaggregator" };
+constexpr auto SHARED_MEMORY_LENGTH{ 2560 };
 
 struct DataBlock
 {
@@ -22,13 +25,25 @@ struct DataBlock
 	}
 };
 
-struct ShBuf
-{
-	pthread_mutex_t mutex;
-	std::span<DataBlock> data;
+/*
 
-	void InitBuffer(const std::size_t numberOfBlocks)
-	{
-		data = std::span<DataBlock>(reinterpret_cast<DataBlock*>(this + 1), numberOfBlocks);
-	}
+*/
+class ShBuf
+{
+public:
+	ShBuf(const std::size_t numberOfBlocks);
+	~ShBuf();
+
+public:
+	void lock();
+	void unlock();
+
+public:
+	DataBlock& operator[](const std::size_t blockNum);
+
+private:
+	pthread_mutex_t* m_mutex;
+	std::span<DataBlock> m_data;
 };
+
+}	 // namespace common

@@ -1,11 +1,11 @@
-#include <iostream>
+#include <fcntl.h>
+#include <mqueue.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include <unistd.h>
 
-#include <chrono>
-#include <thread>
+#include <iostream>
+#include <mutex>
 
 #include <common/Buffer.h>
 
@@ -13,25 +13,29 @@ int main()
 {
 	std::cout << "Consumer Started" << std::endl;
 
-	const auto fd{ shm_open(SHARED_MEMORY_NAME, O_RDWR | O_CREAT, 0666) };
+	common::ShBuf buf{ 5 };
 
-	ftruncate(fd, SHARED_MEMORY_LENGTH);
+	// Create message queue
+	mq_attr queueAttr;
+	queueAttr.mq_flags = 0;
+	queueAttr.mq_maxmsg = 1;
+	queueAttr.mq_msgsize = 1;
+	queueAttr.mq_curmsgs = 0;
 
-	ShBuf* buf = reinterpret_cast<ShBuf*>(mmap(NULL, SHARED_MEMORY_LENGTH, PROT_READ, MAP_SHARED, fd, 0));
-	close(fd);
+	mqd_t mq = mq_open(common::MESSAGE_QUEUE_NAME, O_CREAT | O_RDONLY, 0666, &queueAttr);
 
-	// buf->InitBuffer(5);
 	while (true)
 	{
-		std::this_thread::sleep_for(std::chrono::seconds{ 1 });
-		pthread_mutex_lock(&buf->mutex);
-		DataBlock db = buf->data[0];
+		char msg[1];
+		mq_receive(mq, msg, 1, nullptr);
+
+		const std::lock_guard<common::ShBuf> guard{ buf };
+		common::DataBlock db = buf[0];
 		std::cout << db.pid << " " << db.seqnum << " " << db.data << std::endl;
-		pthread_mutex_unlock(&buf->mutex);
 	}
 
-	munmap(buf, SHARED_MEMORY_LENGTH);
-	shm_unlink(SHARED_MEMORY_NAME);
+	mq_close(mq);
+	mq_unlink(common::MESSAGE_QUEUE_NAME);
 
 	return 0;
 }

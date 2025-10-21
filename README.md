@@ -9,6 +9,16 @@ The solution must be implemented in C or C++ (C++ preferred for modern IPC featu
 and the final implementation should be robust, thread-safe (within the processes), and
 correctly handle synchronization between the processes.
 
+## Clone
+
+For simplicity I used submodules here, so to clone the repo, you need to call:
+
+```bash
+git clone --recurse-submodules <project-url>
+```
+
+Package managers such as Conan can be used instead of submodules for convenience, but it requires more setup.
+
 ## Configure And Build
 
 First configure the project:
