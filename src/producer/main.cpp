@@ -1,9 +1,4 @@
 #include <fcntl.h>
-#include <mqueue.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 #include <iostream>
 #include <thread>
@@ -14,32 +9,25 @@ int main()
 {
 	std::cout << "Producer Started" << std::endl;
 
+	common::initSignalHandlers();
+
 	common::ShBuf buf{ 5 };
-
-	// Create message queue
-	mq_attr queueAttr;
-	queueAttr.mq_flags = 0;
-	queueAttr.mq_maxmsg = 1;
-	queueAttr.mq_msgsize = 1;
-	queueAttr.mq_curmsgs = 0;
-
-	mqd_t mq =
-		mq_open(common::MESSAGE_QUEUE_NAME, O_CREAT | O_WRONLY | O_NONBLOCK, 0666, &queueAttr);
+	common::MQueue mq{ O_WRONLY | O_NONBLOCK };
 
 	std::uint32_t seqnum{ 0 };
-	while (true)
+	while (!common::shouldExit())
 	{
 		std::this_thread::sleep_for(std::chrono::milliseconds{ 500 });
 		const std::lock_guard<common::ShBuf> guard{ buf };
 		common::DataBlock db;
 		db.pid = getpid();
 		db.seqnum = seqnum++;
-		db.SetData("Hello");
+		db.setData("Hello");
 		buf[0] = db;
-		mq_send(mq, "", 0, 0);
+		mq.sendNotify();
 	}
 
-	mq_close(mq);
+	std::cout << "Producer: Graceful exit..." << std::endl;
 
 	return 0;
 }
