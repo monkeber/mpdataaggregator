@@ -14,11 +14,14 @@ int main()
 
 	while (true)
 	{
-		mq.receiveNotify();
+		mq.ReceiveNotify();
 
 		const std::lock_guard<common::ShBuf> guard{ buf };
-		common::DataBlock db = buf[0];
-		std::cout << db.pid << " " << db.seqnum << " " << db.data << std::endl;
+		for (const auto& db : buf)
+		{
+			std::cout << db.pid << " " << db.seqnum << " " << db.data << std::endl;
+		}
+		buf.ResetData();
 	}
 
 	return 0;

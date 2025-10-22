@@ -21,7 +21,6 @@ static std::atomic<bool> ShouldExit{ false };
 
 constexpr auto MESSAGE_QUEUE_NAME{ "/mpdataaggregatorqueue" };
 constexpr auto SHARED_MEMORY_NAME{ "/mpdataaggregator" };
-constexpr auto SHARED_MEMORY_LENGTH{ 2560 };
 
 }	 // namespace details
 }	 // namespace
@@ -31,7 +30,9 @@ namespace common
 
 ShBuf::ShBuf(const std::size_t numberOfBlocks)
 	: m_mutex{ nullptr }
+	, m_currentNumOfElements{ nullptr }
 	, m_data{}
+	, m_memorySize{ 0 }
 {
 	int fd{ 0 };
 	bool firstInitialization{ false };
@@ -49,10 +50,13 @@ ShBuf::ShBuf(const std::size_t numberOfBlocks)
 		throw std::runtime_error{ fmt::format("Error during shm_open call, errno: {}", errno) };
 	}
 
-	ftruncate(fd, details::SHARED_MEMORY_LENGTH);
+	m_memorySize = sizeof(decltype(m_mutex)) + sizeof(decltype(m_currentNumOfElements))
+		+ (DATA_CHUNK_SIZE * numberOfBlocks);
 
-	m_mutex = reinterpret_cast<pthread_mutex_t*>(
-		mmap(NULL, details::SHARED_MEMORY_LENGTH, PROT_WRITE, MAP_SHARED, fd, 0));
+	ftruncate(fd, m_memorySize);
+
+	m_mutex =
+		static_cast<pthread_mutex_t*>(mmap(NULL, m_memorySize, PROT_WRITE, MAP_SHARED, fd, 0));
 	close(fd);
 
 	if (m_mutex == MAP_FAILED)
@@ -60,8 +64,6 @@ ShBuf::ShBuf(const std::size_t numberOfBlocks)
 		shm_unlink(details::SHARED_MEMORY_NAME);
 		throw std::runtime_error{ fmt::format("Mmap returned null, errno: {}", errno) };
 	}
-
-	m_data = std::span<DataBlock>{ reinterpret_cast<DataBlock*>(m_mutex + 1), numberOfBlocks };
 
 	if (firstInitialization)
 	{
@@ -71,11 +73,17 @@ ShBuf::ShBuf(const std::size_t numberOfBlocks)
 		pthread_mutex_init(m_mutex, &attr);
 		pthread_mutexattr_destroy(&attr);
 	}
+
+	m_currentNumOfElements = reinterpret_cast<decltype(m_currentNumOfElements)>(m_mutex + 1);
+	*m_currentNumOfElements = 0;
+
+	m_data = std::span<DataBlock>{ reinterpret_cast<DataBlock*>(m_currentNumOfElements + 1),
+								   numberOfBlocks };
 }
 
 ShBuf::~ShBuf()
 {
-	munmap(m_mutex, details::SHARED_MEMORY_LENGTH);
+	munmap(m_mutex, m_memorySize);
 	shm_unlink(details::SHARED_MEMORY_NAME);
 }
 
@@ -89,9 +97,43 @@ void ShBuf::unlock()
 	pthread_mutex_unlock(m_mutex);
 }
 
-DataBlock& ShBuf::operator[](const std::size_t blockNum)
+std::span<DataBlock>::iterator ShBuf::begin() const
 {
-	return m_data[blockNum];
+	return m_data.begin();
+}
+
+std::span<DataBlock>::iterator ShBuf::end() const
+{
+	auto tempIter = m_data.end();
+	std::advance(tempIter, -(m_data.size() - *m_currentNumOfElements));
+
+	return tempIter;
+}
+
+void ShBuf::Insert(const DataBlock& block)
+{
+	if (IsFull())
+	{
+		return;
+	}
+
+	m_data[*m_currentNumOfElements] = block;
+	++(*m_currentNumOfElements);
+}
+
+bool ShBuf::IsFull() const
+{
+	if (m_currentNumOfElements != nullptr)
+	{
+		return *m_currentNumOfElements >= m_data.size();
+	}
+
+	return true;
+}
+
+void ShBuf::ResetData()
+{
+	*m_currentNumOfElements = 0;
 }
 
 MQueue::MQueue(const int additionalFlags, const bool shouldUnlink)
@@ -111,13 +153,13 @@ MQueue::~MQueue()
 	mq_close(m_queueDesc);
 }
 
-void MQueue::receiveNotify()
+void MQueue::ReceiveNotify()
 {
 	char msg[1];
 	mq_receive(m_queueDesc, msg, 1, nullptr);
 }
 
-void MQueue::sendNotify()
+void MQueue::SendNotify()
 {
 	mq_send(m_queueDesc, "", 0, 0);
 }

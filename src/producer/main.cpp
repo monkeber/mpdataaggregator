@@ -19,12 +19,18 @@ int main()
 	{
 		std::this_thread::sleep_for(std::chrono::milliseconds{ 500 });
 		const std::lock_guard<common::ShBuf> guard{ buf };
+		if (buf.IsFull())
+		{
+			mq.SendNotify();
+			continue;
+		}
+
 		common::DataBlock db;
 		db.pid = getpid();
 		db.seqnum = seqnum++;
-		db.setData("Hello");
-		buf[0] = db;
-		mq.sendNotify();
+		db.SetData("Hello");
+
+		buf.Insert(db);
 	}
 
 	std::cout << "Producer: Graceful exit..." << std::endl;

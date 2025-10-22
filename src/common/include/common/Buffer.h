@@ -10,7 +10,7 @@
 namespace common
 {
 
-constexpr auto DATA_CHUNK_SIZE{ 256 };
+constexpr std::uint32_t DATA_CHUNK_SIZE{ 256 };
 
 /*
  * Represents a data which is being written by producers.
@@ -24,7 +24,7 @@ struct DataBlock
 	//! Data or readings from the producer, in our case it's random words.
 	char data[DATA_CHUNK_SIZE];
 
-	void setData(const char* str)
+	void SetData(const char* str)
 	{
 		std::memcpy(data, str, std::strlen(str) + 1);
 	}
@@ -46,12 +46,23 @@ public:
 	void lock();
 	void unlock();
 
+	//
+	// Iterators.
+	//
 public:
-	DataBlock& operator[](const std::size_t blockNum);
+	std::span<DataBlock>::iterator begin() const;
+	std::span<DataBlock>::iterator end() const;
+
+public:
+	void Insert(const DataBlock& block);
+	bool IsFull() const;
+	void ResetData();
 
 private:
 	pthread_mutex_t* m_mutex;
+	std::size_t* m_currentNumOfElements;
 	std::span<DataBlock> m_data;
+	std::size_t m_memorySize;
 };
 
 class MQueue
@@ -66,10 +77,10 @@ public:
 public:
 	//! Retrieves an oldest message from the queue, may block, depends on whether the O_NONBLOCK was
 	//! passed during construction.
-	void receiveNotify();
+	void ReceiveNotify();
 	//! Sends a new message into the queue, may block, depends on whether the O_NONBLOCK was
 	//! passed during construction.
-	void sendNotify();
+	void SendNotify();
 
 private:
 	bool m_shouldUnlink;
