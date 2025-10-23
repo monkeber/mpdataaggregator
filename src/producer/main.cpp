@@ -1,26 +1,28 @@
 #include <fcntl.h>
 
-#include <iostream>
 #include <thread>
 
-#include <common/Buffer.h>
+#include <common/Core.h>
+#include <common/Utils.h>
 
-int main()
+int main(int argc, char* argv[])
+try
 {
-	std::cout << "Producer Started" << std::endl;
+	const auto args{ common::ParseProducerArguments(argc, argv) };
+	common::Log("Producer: Started");
+	common::InitSignalHandlers();
 
-	common::initSignalHandlers();
-
-	common::ShBuf buf{ 5 };
+	common::ShBuf buf{ args.bufferSizeInBlocks };
 	common::MQueue mq{ O_WRONLY | O_NONBLOCK };
 
 	std::uint32_t seqnum{ 0 };
-	while (!common::shouldExit())
+	while (!common::ShouldExit())
 	{
-		std::this_thread::sleep_for(std::chrono::milliseconds{ 500 });
+		std::this_thread::sleep_for(common::GenerateRandomInterval());
 		const std::lock_guard<common::ShBuf> guard{ buf };
 		if (buf.IsFull())
 		{
+			common::Log("Sending notify...");
 			mq.SendNotify();
 			continue;
 		}
@@ -28,12 +30,29 @@ int main()
 		common::DataBlock db;
 		db.pid = getpid();
 		db.seqnum = seqnum++;
-		db.SetData("Hello");
+
+		const std::string incomingData{ common::GenerateRandomString() };
+		db.SetData(incomingData.c_str());
 
 		buf.Insert(db);
 	}
 
-	std::cout << "Producer: Graceful exit..." << std::endl;
+	common::Log("Producer: Graceful exit...");
 
 	return 0;
+}
+catch (const common::HelpException& e)
+{
+	common::Log("{}", e.what());
+	return 0;
+}
+catch (const std::exception& e)
+{
+	common::Log("Error encountered:\n{}", e.what());
+	return 1;
+}
+catch (...)
+{
+	common::Log("Unknown error encountered");
+	return 1;
 }

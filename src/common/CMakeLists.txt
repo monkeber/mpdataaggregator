@@ -1,11 +1,13 @@
 project(common LANGUAGES CXX)
 
 set(${PROJECT_NAME}_SOURCES
-    src/Buffer.cpp
+    src/Core.cpp
+    src/Utils.cpp
 )
 
 set(${PROJECT_NAME}_HEADERS
-    include/common/Buffer.h
+    include/common/Core.h
+    include/common/Utils.h
 )
 
 add_library(${PROJECT_NAME} STATIC

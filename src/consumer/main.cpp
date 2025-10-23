@@ -1,28 +1,57 @@
 #include <fcntl.h>
 
-#include <iostream>
 #include <mutex>
 
-#include <common/Buffer.h>
+#include <common/Core.h>
+#include <common/Utils.h>
 
-int main()
+int main(int argc, char* argv[])
+try
 {
-	std::cout << "Consumer Started" << std::endl;
+	const auto bufferSize{ common::ParseConsumerArguments(argc, argv) };
+	common::Log("Consumer: Started");
+	common::InitSignalHandlers();
 
-	common::ShBuf buf{ 5 };
-	common::MQueue mq{ O_RDONLY, true };
+	common::ShBuf buf{ bufferSize };
+	common::MQueue mq{ O_RDONLY };
 
 	while (true)
 	{
 		mq.ReceiveNotify();
 
+		// Interrupts can interfere with waiting for a message in a queue, so to avoid processing
+		// additional data blocks before exiting we are going to check the variable after we
+		// finished waiting for a message.
+		if (common::ShouldExit())
+		{
+			break;
+		}
+
 		const std::lock_guard<common::ShBuf> guard{ buf };
 		for (const auto& db : buf)
 		{
-			std::cout << db.pid << " " << db.seqnum << " " << db.data << std::endl;
+			common::Log("{} {} {}", db.pid, db.seqnum, db.payload);
 		}
+		common::Log("Number of elements read: {}\nResetting...", buf.GetSize());
 		buf.ResetData();
 	}
 
+	common::Log("Consumer: Graceful exit...");
+
 	return 0;
+}
+catch (const common::HelpException& e)
+{
+	common::Log("{}", e.what());
+	return 0;
+}
+catch (const std::exception& e)
+{
+	common::Log("Error encountered:\n{}", e.what());
+	return 1;
+}
+catch (...)
+{
+	common::Log("Unknown error encountered");
+	return 1;
 }
