@@ -120,13 +120,21 @@ void ShBuf::InitMemory(const std::size_t numberOfBlocks)
 	}
 	else
 	{
-		throw std::runtime_error{ fmt::format("Error during shm_open call, errno: {}", errno) };
+		throw std::runtime_error{ fmt::format(
+			"Error during shm_open call, errno: {}", strerror(errno)) };
 	}
 
-	m_memorySize = sizeof(decltype(m_mutex)) + sizeof(decltype(m_currentNumOfElements))
+	m_memorySize = sizeof(decltype(*m_mutex)) + sizeof(decltype(*m_currentNumOfElements))
 		+ (sizeof(DataBlock) * numberOfBlocks);
 
-	ftruncate(fd, m_memorySize);
+	Log("Memory allocated: {}", m_memorySize);
+
+	const auto truncRes{ ftruncate(fd, m_memorySize) };
+	if (truncRes < 0)
+	{
+		throw std::runtime_error{ fmt::format(
+			"Error during ftruncate call, errno: {}", strerror(errno)) };
+	}
 
 	m_mutex =
 		static_cast<pthread_mutex_t*>(mmap(NULL, m_memorySize, PROT_WRITE, MAP_SHARED, fd, 0));
