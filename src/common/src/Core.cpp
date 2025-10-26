@@ -124,8 +124,10 @@ void ShBuf::InitMemory(const std::size_t numberOfBlocks)
 			"Error during shm_open call, errno: {}", strerror(errno)) };
 	}
 
-	m_memorySize = sizeof(decltype(*m_mutex)) + sizeof(decltype(*m_currentNumOfElements))
-		+ (sizeof(DataBlock) * numberOfBlocks);
+	// Just a reminder to myself, dereferencing a nullptr in sizeof statement is fine, since
+	// dereferencing is not evaluated unless the type is variable length array.
+	m_memorySize =
+		sizeof(*m_mutex) + sizeof(*m_currentNumOfElements) + (sizeof(DataBlock) * numberOfBlocks);
 
 	Log("Memory allocated: {}", m_memorySize);
 
@@ -136,8 +138,10 @@ void ShBuf::InitMemory(const std::size_t numberOfBlocks)
 			"Error during ftruncate call, errno: {}", strerror(errno)) };
 	}
 
-	m_mutex =
-		static_cast<pthread_mutex_t*>(mmap(NULL, m_memorySize, PROT_WRITE, MAP_SHARED, fd, 0));
+	// Even though we PROT_WRITE may imply PROT_READ on some implementations, better to specify
+	// PROT_READ explicitly.
+	m_mutex = static_cast<pthread_mutex_t*>(
+		mmap(NULL, m_memorySize, PROT_WRITE | PROT_READ, MAP_SHARED, fd, 0));
 	close(fd);
 
 	if (MAP_FAILED == m_mutex)
