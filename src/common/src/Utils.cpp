@@ -42,6 +42,11 @@ bool ShouldExit()
 	return details::ShouldExit.load();
 }
 
+void TerminateAllChildren()
+{
+	kill(0, SIGTERM);
+}
+
 std::chrono::milliseconds GenerateRandomInterval()
 {
 	std::random_device rd;

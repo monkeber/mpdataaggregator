@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unistd.h>
+
 #include <chrono>
 #include <stdexcept>
 #include <string>
@@ -19,6 +21,8 @@ void InitSignalHandlers();
 void SignalHandler(const int signo);
 //! Used to check if the process main loop should break.
 bool ShouldExit();
+//! Sends termination signal to all processes in the same process group as this one.
+void TerminateAllChildren();
 
 //
 // Generating random data.
@@ -38,7 +42,9 @@ std::chrono::milliseconds GenerateRandomInterval();
 template<typename... Args>
 auto Log(fmt::format_string<Args...> fmt, Args&&... args)
 {
-	return fmt::println(fmt, std::forward<Args>(args)...);
+	const auto message{ fmt::format(fmt, std::forward<Args>(args)...) };
+
+	return fmt::println("PID {}: {}", getpid(), message);
 }
 
 //

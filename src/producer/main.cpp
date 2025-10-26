@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <sys/wait.h>
 
 #include <thread>
 
@@ -8,11 +9,25 @@
 int main(int argc, char* argv[])
 try
 {
-	const auto args{ common::ParseProducerArguments(argc, argv) };
+	const auto arguments{ common::ParseProducerArguments(argc, argv) };
+	std::vector<pid_t> children;
+	for (std::size_t i = 0; i < (arguments.numberOfProcesses - 1); ++i)
+	{
+		const auto pid{ fork() };
+		if (0 == pid)
+		{
+			break;
+		}
+		else
+		{
+			children.push_back(pid);
+		}
+	}
+
 	common::Log("Producer: Started");
 	common::InitSignalHandlers();
 
-	common::ShBuf buf{ args.bufferSizeInBlocks };
+	common::ShBuf buf{ arguments.bufferSizeInBlocks };
 	common::MQueue mq{ O_WRONLY | O_NONBLOCK };
 
 	std::uint32_t seqnum{ 0 };
@@ -35,6 +50,33 @@ try
 		db.SetData(incomingData.c_str());
 
 		buf.Insert(db);
+	}
+
+	if (!children.empty())
+	{
+		common::Log("Waiting for child processes to exit...");
+		common::TerminateAllChildren();
+	}
+
+	while (!children.empty())
+	{
+		int* stat_lock;
+		pid_t pid = wait(stat_lock);
+		if (-1 == pid && errno == EINTR)
+		{
+			continue;
+		}
+		if (-1 == pid && errno == ECHILD)
+		{
+			break;
+		}
+		else
+		{
+			common::Log("Error while trying to wait for children: {}", strerror(errno));
+			break;
+		}
+		std::ignore = std::remove(children.begin(), children.end(), pid);
+		common::Log("Child {} exited", pid);
 	}
 
 	common::Log("Producer: Graceful exit...");
