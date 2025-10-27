@@ -16,7 +16,14 @@ try
 		const auto pid{ fork() };
 		if (0 == pid)
 		{
+			// So child processes after the first one do not think they have spawned other
+			// processes.
+			children.clear();
 			break;
+		}
+		else if (-1 == pid)
+		{
+			common::Log("Failed to create a child: {}", strerror(errno));
 		}
 		else
 		{
@@ -54,7 +61,13 @@ try
 
 	if (!children.empty())
 	{
-		common::Log("Waiting for child processes to exit...");
+		std::string childrenstr;
+		for (const auto pid : children)
+		{
+			childrenstr.append(std::to_string(pid));
+			childrenstr.append(" ");
+		}
+		common::Log("Waiting for child processes to exit... PIDs: {}", childrenstr);
 		common::TerminateAllChildren();
 	}
 
@@ -66,11 +79,11 @@ try
 		{
 			continue;
 		}
-		if (-1 == pid && errno == ECHILD)
+		else if (-1 == pid && errno == ECHILD)
 		{
 			break;
 		}
-		else
+		else if (-1 == pid)
 		{
 			common::Log("Error while trying to wait for children: {}", strerror(errno));
 			break;
