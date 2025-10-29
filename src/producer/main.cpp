@@ -6,12 +6,9 @@
 #include <common/Core.h>
 #include <common/Utils.h>
 
-int main(int argc, char* argv[])
-try
+void CreateChildren(const common::ProducerConfig& config, std::vector<pid_t>& children)
 {
-	const auto arguments{ common::ParseProducerArguments(argc, argv) };
-	std::vector<pid_t> children;
-	for (std::size_t i = 0; i < (arguments.numberOfProcesses - 1); ++i)
+	for (std::size_t i = 0; i < (config.numberOfProcesses - 1); ++i)
 	{
 		const auto pid{ fork() };
 		if (0 == pid)
@@ -30,35 +27,10 @@ try
 			children.push_back(pid);
 		}
 	}
+}
 
-	common::Log("Producer: Started");
-	common::InitSignalHandlers();
-
-	common::ShBuf buf{ arguments.bufferSizeInBlocks };
-	common::MQueue mq{ O_WRONLY | O_NONBLOCK };
-
-	std::uint32_t seqnum{ 0 };
-	while (!common::ShouldExit())
-	{
-		std::this_thread::sleep_for(common::GenerateRandomInterval());
-		const std::lock_guard<common::ShBuf> guard{ buf };
-		if (buf.IsFull())
-		{
-			common::Log("Sending notify...");
-			mq.SendNotify();
-			continue;
-		}
-
-		common::DataBlock db;
-		db.pid = getpid();
-		db.seqnum = seqnum++;
-
-		const std::string incomingData{ common::GenerateRandomString() };
-		db.SetData(incomingData.c_str());
-
-		buf.Insert(db);
-	}
-
+void TerminateChildren(std::vector<pid_t>& children)
+{
 	if (!children.empty())
 	{
 		std::string childrenstr;
@@ -91,6 +63,39 @@ try
 		std::ignore = std::remove(children.begin(), children.end(), pid);
 		common::Log("Child {} exited", pid);
 	}
+}
+
+int main(int argc, char* argv[])
+try
+{
+	const auto arguments{ common::ParseProducerArguments(argc, argv) };
+	std::vector<pid_t> children;
+	CreateChildren(arguments, children);
+
+	common::Log("Producer: Started");
+	common::InitSignalHandlers();
+
+	common::ShBuf buf{ arguments.bufferSizeInBlocks };
+	common::MQueue mq{ O_WRONLY | O_NONBLOCK };
+
+	std::uint32_t seqnum{ 0 };
+	while (!common::ShouldExit())
+	{
+		std::this_thread::sleep_for(common::GenerateRandomInterval());
+
+		common::DataBlock db;
+		db.pid = getpid();
+		db.seqnum = seqnum++;
+
+		const std::string incomingData{ common::GenerateRandomString() };
+		db.SetData(incomingData.c_str());
+
+		const std::lock_guard<common::ShBuf> guard{ buf };
+		buf.Insert(db);
+		mq.SendNotify();
+	}
+
+	TerminateChildren(children);
 
 	common::Log("Producer: Graceful exit...");
 

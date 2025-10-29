@@ -27,13 +27,23 @@ try
 			break;
 		}
 
-		const std::lock_guard<common::ShBuf> guard{ buf };
-		for (const auto& db : buf)
+		std::vector<common::DataBlock> readData;
+
+		{
+			const std::lock_guard<common::ShBuf> guard{ buf };
+			std::optional<common::DataBlock> newElement{ buf.Read() };
+			while (newElement.has_value())
+			{
+				readData.push_back(newElement.value());
+				newElement = buf.Read();
+			}
+		}
+
+		for (const auto db : readData)
 		{
 			common::Log("{} {} {}", db.pid, db.seqnum, db.payload);
 		}
-		common::Log("Number of elements read: {}\nResetting...", buf.GetSize());
-		buf.ResetData();
+		common::Log("Number of elements read: {}", readData.size());
 	}
 
 	common::Log("Consumer: Graceful exit...");

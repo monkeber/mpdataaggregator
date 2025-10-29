@@ -9,6 +9,14 @@
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": true
             }
+        },
+        {
+            "name": "release",
+            "displayName": "Release Preset",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
         }
     ],
     "buildPresets": [
@@ -20,6 +28,15 @@
             "cleanFirst": true,
             "verbose": false,
             "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "displayName": "Release Build Preset",
+            "description": "Release build preset",
+            "jobs": 0,
+            "cleanFirst": true,
+            "verbose": false,
+            "configurePreset": "release"
         }
     ]
 }

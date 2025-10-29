@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <span>
 
 #include <mqueue.h>
@@ -13,7 +14,7 @@ namespace common
 constexpr std::uint32_t DATA_CHUNK_SIZE{ 256 };
 
 /*
- * Represents a data which is being written by producers.
+ * Represents data which is being written by producers.
  */
 struct DataBlock
 {
@@ -32,7 +33,8 @@ struct DataBlock
 };
 
 /*
- * Provides interface for our shared memory.
+ * Provides interface for our shared memory buffer. Read and Insert methods should be called only
+ * when the buffer mutex is locked, otherwise there is a risk of corrupting data.
  */
 class ShBuf
 {
@@ -47,24 +49,13 @@ public:
 	void lock();
 	void unlock();
 
-	//
-	// Iterators.
-	//
 public:
-	std::span<DataBlock>::iterator begin() const;
-	std::span<DataBlock>::iterator end() const;
-
-public:
-	//! Returns the number of elements that were written into the buffer since the last reset.
-	std::size_t GetSize() const;
 	//! Inserts a new data block into the buffer, does nothing if it's already full.
 	void Insert(const DataBlock& block);
-	//! Returns true if the number of inserted elements equals the number of blocks this buffer was
-	//! initialized for.
-	bool IsFull() const;
-	//! Resets the current size to zero, effectively allowing clients to treat the buffer as empty
-	//! and insert new data overwriting the old one.
-	void ResetData();
+	//! Returns true if the buffer is full.
+	//! Reads and returns the data block from the buffer, if there is nothing to read - returns
+	//! nullopt.
+	std::optional<DataBlock> Read();
 
 private:
 	//! Creates or attaches to already created shared memory, performs mapping.
@@ -75,10 +66,11 @@ private:
 private:
 	//! Posix mutex for syncing between processes.
 	pthread_mutex_t* m_mutex;
-	//! Represents the number of elements that were inserted into the buffer since the last reset,
-	//! initially 0.
-	std::size_t* m_currentNumOfElements;
-	//! Convenient interface for accessing the data blocks internally.
+	//! Represents an index at which the next read should occur.
+	std::size_t* m_readIndex;
+	//! Represents an index at which the next write should occur.
+	std::size_t* m_writeIndex;
+	//! Convenient interface for accessing the data blocks internally and the size of the buffer.
 	std::span<DataBlock> m_data;
 	//! Holds the actual size of the memory that was allocated for the buffer.
 	std::size_t m_memorySize;

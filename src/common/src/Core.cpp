@@ -23,7 +23,8 @@ namespace common
 
 ShBuf::ShBuf(const std::size_t numberOfBlocks)
 	: m_mutex{ nullptr }
-	, m_currentNumOfElements{ nullptr }
+	, m_readIndex{ nullptr }
+	, m_writeIndex{ nullptr }
 	, m_data{}
 	, m_memorySize{ 0 }
 	, m_isCreator{ false }
@@ -46,9 +47,10 @@ void ShBuf::lock()
 	const auto ret{ pthread_mutex_lock(m_mutex) };
 	if (EOWNERDEAD == ret)
 	{
-		Log("Detected dead owner of a mutex, resetting the buffer...");
-		ResetData();
+		Log("Detected dead owner of a mutex, resetting the buffer, possible data loss...");
 		pthread_mutex_consistent(m_mutex);
+		*m_writeIndex = 0;
+		*m_readIndex = 0;
 		// We are not going to unlock it here, allowing the calling thread to work on the data with
 		// mutex still locked.
 	}
@@ -59,61 +61,43 @@ void ShBuf::unlock()
 	pthread_mutex_unlock(m_mutex);
 }
 
-std::span<DataBlock>::iterator ShBuf::begin() const
-{
-	return m_data.begin();
-}
-
-std::span<DataBlock>::iterator ShBuf::end() const
-{
-	auto tempIter = m_data.end();
-	std::advance(tempIter, -(m_data.size() - *m_currentNumOfElements));
-
-	return tempIter;
-}
-
-std::size_t ShBuf::GetSize() const
-{
-	return *m_currentNumOfElements;
-}
-
 void ShBuf::Insert(const DataBlock& block)
 {
-	if (IsFull())
-	{
-		return;
-	}
-
 	Log("Inserting seqnum: {} Data: {}", block.seqnum, block.payload);
 
-	m_data[*m_currentNumOfElements] = block;
-	++(*m_currentNumOfElements);
+	m_data[*m_writeIndex] = block;
+	*m_writeIndex = (*m_writeIndex + 1) % m_data.size();
+
+	if (*m_writeIndex == *m_readIndex)
+	{
+		*m_readIndex = (*m_readIndex + 1) % m_data.size();
+	}
 }
 
-bool ShBuf::IsFull() const
+std::optional<DataBlock> ShBuf::Read()
 {
-	if (nullptr != m_currentNumOfElements)
+	// The buffer is empty and there is nothing to read.
+	if (*m_readIndex == *m_writeIndex)
 	{
-		return *m_currentNumOfElements >= m_data.size();
+		return std::nullopt;
 	}
 
-	return true;
-}
+	std::optional<DataBlock> result{ m_data[*m_readIndex] };
 
-void ShBuf::ResetData()
-{
-	*m_currentNumOfElements = 0;
+	*m_readIndex = (*m_readIndex + 1) % m_data.size();
+
+	return result;
 }
 
 void ShBuf::InitMemory(const std::size_t numberOfBlocks)
 {
-	int fd{ 0 };
-	fd = shm_open(details::SHARED_MEMORY_NAME, O_RDWR | O_CREAT | O_EXCL, 0666);
-	if (fd < 0 && errno == EEXIST)
+	int memFd{ 0 };
+	memFd = shm_open(details::SHARED_MEMORY_NAME, O_RDWR | O_CREAT | O_EXCL, 0666);
+	if (memFd < 0 && errno == EEXIST)
 	{
-		fd = shm_open(details::SHARED_MEMORY_NAME, O_RDWR | O_CREAT, 0666);
+		memFd = shm_open(details::SHARED_MEMORY_NAME, O_RDWR | O_CREAT, 0666);
 	}
-	else if (fd >= 0)
+	else if (memFd >= 0)
 	{
 		Log("First initialization");
 		m_isCreator = true;
@@ -126,13 +110,13 @@ void ShBuf::InitMemory(const std::size_t numberOfBlocks)
 
 	// Just a reminder to myself, dereferencing a nullptr in sizeof statement is fine, since
 	// dereferencing is not evaluated unless the type is variable length array.
-	m_memorySize =
-		sizeof(*m_mutex) + sizeof(*m_currentNumOfElements) + (sizeof(DataBlock) * numberOfBlocks);
+	m_memorySize = sizeof(*m_mutex) + sizeof(*m_readIndex) + sizeof(*m_writeIndex)
+		+ (sizeof(DataBlock) * numberOfBlocks);
 
 	Log("Memory allocated: {}", m_memorySize);
 
-	const auto truncRes{ ftruncate(fd, m_memorySize) };
-	if (truncRes < 0)
+	const auto truncateRes{ ftruncate(memFd, m_memorySize) };
+	if (truncateRes < 0)
 	{
 		throw std::runtime_error{ fmt::format(
 			"Error during ftruncate call, errno: {}", strerror(errno)) };
@@ -141,8 +125,8 @@ void ShBuf::InitMemory(const std::size_t numberOfBlocks)
 	// Even though we PROT_WRITE may imply PROT_READ on some implementations, better to specify
 	// PROT_READ explicitly.
 	m_mutex = static_cast<pthread_mutex_t*>(
-		mmap(NULL, m_memorySize, PROT_WRITE | PROT_READ, MAP_SHARED, fd, 0));
-	close(fd);
+		mmap(NULL, m_memorySize, PROT_WRITE | PROT_READ, MAP_SHARED, memFd, 0));
+	close(memFd);
 
 	if (MAP_FAILED == m_mutex)
 	{
@@ -154,9 +138,12 @@ void ShBuf::InitMemory(const std::size_t numberOfBlocks)
 
 void ShBuf::InitState(const std::size_t numberOfBlocks)
 {
-	m_currentNumOfElements = reinterpret_cast<decltype(m_currentNumOfElements)>(m_mutex + 1);
+	// Possible place for improvement, maybe move these members into a standalone struct to avoid
+	// calculating their addresses because it is error prone.
+	m_readIndex = reinterpret_cast<decltype(m_readIndex)>(m_mutex + 1);
+	m_writeIndex = reinterpret_cast<decltype(m_writeIndex)>(m_readIndex + 1);
 	m_data = std::span<DataBlock>{
-		reinterpret_cast<DataBlock*>(m_currentNumOfElements + 1),
+		reinterpret_cast<DataBlock*>(m_writeIndex + 1),
 		numberOfBlocks,
 	};
 
@@ -168,9 +155,11 @@ void ShBuf::InitState(const std::size_t numberOfBlocks)
 		pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
 		pthread_mutex_init(m_mutex, &attr);
 		pthread_mutexattr_destroy(&attr);
-		// Resetting the size should be done once and only in the process that created the shared
-		// memory, in other cases we should just use the value that is already there.
-		*m_currentNumOfElements = 0;
+		// Resetting the indeces should be done only on initial initialization of the memory (the
+		// process that created the buffer), in all the following processes we should just read the
+		// existing values.
+		*m_readIndex = 0;
+		*m_writeIndex = 0;
 	}
 }
 
