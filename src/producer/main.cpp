@@ -92,7 +92,10 @@ try
 
 		const std::lock_guard<common::ShBuf> guard{ buf };
 		buf.Insert(db);
-		mq.SendNotify();
+		if (buf.IsFull())
+		{
+			mq.SendNotify();
+		}
 	}
 
 	TerminateChildren(children);

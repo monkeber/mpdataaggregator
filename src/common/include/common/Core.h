@@ -34,7 +34,7 @@ struct DataBlock
 
 /*
  * Provides interface for our shared memory buffer. Read and Insert methods should be called only
- * when the buffer mutex is locked, otherwise there is a risk of corrupting data.
+ * when the buffer mutex is locked, otherwise there is a risk of corrupting the data.
  */
 class ShBuf
 {
@@ -52,9 +52,11 @@ public:
 public:
 	//! Inserts a new data block into the buffer, does nothing if it's already full.
 	void Insert(const DataBlock& block);
-	//! Returns true if the buffer is full.
-	//! Reads and returns the data block from the buffer, if there is nothing to read - returns
-	//! nullopt.
+	//! Returns true if the buffer if full, that is the next write is going to overwrite stale data,
+	//! false otherwise.
+	bool IsFull() const;
+	//! Returns true if the buffer is full. Reads and returns the data block from
+	//! the buffer, if there is nothing to read - returns nullopt.
 	std::optional<DataBlock> Read();
 
 private:
@@ -80,7 +82,7 @@ private:
 };
 
 /*
- * Provides interface for for sending and receiving messages to/from othger processes.
+ * Provides interface for sending and receiving messages to/from other processes.
  */
 class MQueue
 {

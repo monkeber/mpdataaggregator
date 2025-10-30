@@ -29,8 +29,10 @@ ShBuf::ShBuf(const std::size_t numberOfBlocks)
 	, m_memorySize{ 0 }
 	, m_isCreator{ false }
 {
-	InitMemory(numberOfBlocks);
-	InitState(numberOfBlocks);
+	// We are going to lose one slot of capacity in order to detect when the buffer is full.
+	const std::size_t actualSize{ numberOfBlocks + 1 };
+	InitMemory(actualSize);
+	InitState(actualSize);
 }
 
 ShBuf::~ShBuf()
@@ -64,14 +66,18 @@ void ShBuf::unlock()
 void ShBuf::Insert(const DataBlock& block)
 {
 	Log("Inserting seqnum: {} Data: {}", block.seqnum, block.payload);
-
-	m_data[*m_writeIndex] = block;
-	*m_writeIndex = (*m_writeIndex + 1) % m_data.size();
-
-	if (*m_writeIndex == *m_readIndex)
+	if (IsFull())
 	{
 		*m_readIndex = (*m_readIndex + 1) % m_data.size();
 	}
+
+	m_data[*m_writeIndex] = block;
+	*m_writeIndex = (*m_writeIndex + 1) % m_data.size();
+}
+
+bool ShBuf::IsFull() const
+{
+	return ((*m_writeIndex + 1) % m_data.size()) == *m_readIndex;
 }
 
 std::optional<DataBlock> ShBuf::Read()
