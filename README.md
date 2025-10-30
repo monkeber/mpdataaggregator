@@ -1,5 +1,7 @@
 # Multi-Process Data Aggregator
 
+![C++](https://img.shields.io/badge/C%2B%2B-00599C?style=flat&logo=c%2B%2B&logoColor=white) ![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat&logo=linux&logoColor=black) ![CMake](https://img.shields.io/badge/CMake-%23008FBA.svg?style=flat&logo=cmake&logoColor=white)
+
 The goal is to design and implement a multi-process application that simulates reading
 data from multiple independent sources, aggregates this data into a single, shared,
 finite-size buffer, and notifies a separate Consumer process when a complete "batch" of
